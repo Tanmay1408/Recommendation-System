@@ -1,0 +1,94 @@
+import numpy as np
+from scipy.stats import pearsonr
+
+class ThreeWayNBRecommendationModel:
+    def __init__(self, num_users, num_items, score_matrix):
+        self.num_users = num_users
+        self.num_items = num_items
+        self.score_matrix = score_matrix
+        self.user_similarities = np.zeros((num_users, num_users))
+        self.neighbor_users = {}
+        self.target_user_set = []
+        self.high_confidence_recommendations = []
+        self.medium_confidence_recommendations = []
+        self.low_confidence_recommendations = []
+
+    def calculate_similarity(self):
+        for i in range(self.num_users):
+            for j in range(self.num_users):
+                if i != j:
+                    non_zero_indices = np.logical_and(self.score_matrix[i] != 0, self.score_matrix[j] != 0)
+                    if np.any(non_zero_indices):
+                        correlation, _ = pearsonr(self.score_matrix[i][non_zero_indices], self.score_matrix[j][non_zero_indices])
+                        self.user_similarities[i][j] = correlation
+
+    def find_nearest_neighbors(self):
+        k = 5  # Adjust this value as needed
+        for user in self.target_user_set:
+            self.neighbor_users[user] = np.argsort(-self.user_similarities[user])[:k]
+
+    def calculate_predicted_scores(self, user):
+        unrated_items = np.where(self.score_matrix[user] == 0)[0]
+        predicted_scores = np.zeros(self.num_items)
+
+        for item in unrated_items:
+            rated_users = np.where(self.score_matrix[:, item] != 0)[0]
+            numerator = np.sum(self.user_similarities[user][rated_users] * self.score_matrix[rated_users, item])
+            denominator = np.sum(np.abs(self.user_similarities[user][rated_users]))
+            predicted_scores[item] = numerator / (denominator + 1e-10)
+
+        return predicted_scores
+
+    def naive_bayesian_classifier(self, predicted_scores):
+        high_confidence = 3
+        medium_confidence = 2
+
+        probabilities = []
+
+        for score in predicted_scores:
+            if score >= high_confidence:
+                probabilities.append(1)  # High confidence
+            elif score >= medium_confidence:
+                probabilities.append(0.5)  # Medium confidence
+            else:
+                probabilities.append(0)  # Low confidence
+
+        return probabilities
+
+    def calculate_threshold(self):
+        tau = [0.7, 0.3, 0.1]  # Adjust these threshold values as needed
+        return tau
+
+    def divide_recommendations(self):
+        tau = self.calculate_threshold()
+
+        for user in self.target_user_set:
+            predicted_scores = self.calculate_predicted_scores(user)
+            probabilities = self.naive_bayesian_classifier(predicted_scores)
+
+            high_confidence_items = [item for item, prob in enumerate(probabilities) if prob == 1]
+            medium_confidence_items = [item for item, prob in enumerate(probabilities) if prob == 0.5]
+            low_confidence_items = [item for item, prob in enumerate(probabilities) if prob == 0]
+
+            if len(high_confidence_items) >= tau[0] * self.num_items:
+                self.high_confidence_recommendations.append((user, high_confidence_items))
+            elif len(medium_confidence_items) >= tau[1] * self.num_items:
+                self.medium_confidence_recommendations.append((user, medium_confidence_items))
+            else:
+                self.low_confidence_recommendations.append((user, low_confidence_items))
+
+# Example Usage
+num_users = 100
+num_items = 200
+score_matrix = np.random.randint(0, 6, size=(num_users, num_items))
+
+model = ThreeWayNBRecommendationModel(num_users, num_items, score_matrix)
+model.target_user_set = [1, 2, 3]
+model.calculate_similarity()
+model.find_nearest_neighbors()
+model.divide_recommendations()
+
+# Access the recommendation lists
+high_confidence = model.high_confidence_recommendations
+medium_confidence = model.medium_confidence_recommendations
+low_confidence = model.low_confidence_recommendations
